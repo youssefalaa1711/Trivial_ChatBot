@@ -19,70 +19,58 @@ class AppUI:
 
     def run(self):
         st.set_page_config(page_title="Trivial ChatBot", layout="wide")
-        # Theme CSS
-        settings = self.settings.get_settings()
-        theme = settings.get("theme", "light")
-        accent_color = settings.get("accent_color", "#4F8BF9")
-        if theme == "dark":
-            st.markdown(f"""
-                <style>
-                body, .stApp {{ background-color: #18191A !important; color: #f1f1f1 !important; }}
-                .stChatMessage.user {{background-color: #263238; color: #fff;}}
-                .stChatMessage.assistant {{background-color: {accent_color}; color: #fff;}}
-                .stChatInput {{background: #23272F; color: #fff;}}
-                </style>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-                <style>
-                .stChatMessage.user {{background-color: #e0f7fa; border-radius: 10px; margin-bottom: 8px;}}
-                .stChatMessage.assistant {{background-color: {accent_color}; border-radius: 10px; margin-bottom: 8px; color: #fff;}}
-                .stChatInput {{position: fixed; bottom: 0; left: 0; width: 100%; background: #fff; padding: 1rem 2rem; box-shadow: 0 -2px 8px rgba(0,0,0,0.05);}}
-                </style>
-            """, unsafe_allow_html=True)
 
         # Title always at the top
-        st.markdown("<h1 style='text-align:center;'>Trivial ChatBot</h1>", unsafe_allow_html=True)
+        st.title("Trivial ChatBot")
 
-        # Sidebar with settings
-        st.sidebar.title("⚙️ Settings")
-        theme = st.sidebar.selectbox("Theme", ["Light", "Dark"], index=0 if settings.get("theme") == "light" else 1)
-        emoji = st.sidebar.selectbox("Bot Emoji", ["🤖", "💬", "🧠", "👾", "🦾"], index=["🤖", "💬", "🧠", "👾", "🦾"].index(settings.get("emoji", "🤖")))
-        bot_name = st.sidebar.text_input("Bot Name", value=settings.get("bot_name", "Bot"))
-        if st.sidebar.button("Clear Chat"):
-            self.chat_history.clear()
-            st.session_state["last_input"] = ""
-        # Save settings
-        self.settings.update_settings("theme", theme.lower())
-        self.settings.update_settings("bot_name", bot_name)
-        self.settings.update_settings("emoji", emoji)
-
-        # File upload in sidebar
+        # Sidebar with settings (scrollable)
         with st.sidebar:
-            uploaded_file = st.file_uploader("Upload a text file", type=["txt"])
+            st.title("⚙️ Settings")
+            settings = self.settings.get_settings()
+            # Remove theme selector
+            emoji = st.selectbox("Bot Emoji", ["🤖", "💬", "🧠", "👾", "🦾"], index=["🤖", "💬", "🧠", "👾", "🦾"].index(settings.get("emoji", "🤖")))
+            bot_name = st.text_input("Bot Name", value=settings.get("bot_name", "Bot"))
+            user_name = st.text_input("Your Name (optional)", value=st.session_state.get("user_name", "You"))
+            st.session_state["user_name"] = user_name
+            if st.button("Clear Chat"):
+                self.chat_history.clear()
+                st.session_state["last_input"] = ""
+            self.settings.update_settings("bot_name", bot_name)
+            self.settings.update_settings("emoji", emoji)
+            uploaded_file = st.file_uploader("Upload a file (txt, png, jpg, jpeg, gif, bmp, webp)", type=["txt", "png", "jpg", "jpeg", "gif", "bmp", "webp"])
             if uploaded_file:
-                file_text = self.file_upload.read_file(uploaded_file)
-                st.write("📄 File Content:")
-                st.text(file_text)
+                if uploaded_file.type.startswith("image/"):
+                    st.image(uploaded_file, caption="Uploaded Image", use_container_width=True)
+                elif uploaded_file.type == "text/plain":
+                    file_text = self.file_upload.read_file(uploaded_file)
+                    st.write("📄 File Content:")
+                    st.text_area("File Preview", file_text, height=100)
+                else:
+                    st.warning("Unsupported file type.")
 
         st.divider()
 
-        # Main chat area
-        chat_container = st.container()
-        with chat_container:
+        # Welcome message
+        if not self.chat_history.get_all():
+            st.success(f"{settings.get('emoji', '🤖')} **{bot_name}:** Welcome to Trivial ChatBot! How can I help you today?")
+
+        # Main chat area (no timestamp for user)
+        chat_placeholder = st.container()
+        with chat_placeholder:
             for msg in self.chat_history.get_all():
                 role = "user" if msg.sender == "User" else "assistant"
-                emoji_display = "" if role == "user" else settings.get("emoji", "🤖")
-                with st.chat_message(role):
-                    st.markdown(f"{emoji_display} **{msg.sender}**: {msg.content}")
+                if role == "user":
+                    st.info(f"**{st.session_state.get('user_name', 'You')}:** {msg.content}")
+                else:
+                    st.success(f"{settings.get('emoji', '🤖')} **{msg.sender}:** {msg.content}")
 
-        # Input at the bottom (fixed bar)
-        st.markdown("<div class='stChatInput'></div>", unsafe_allow_html=True)
+        # Input at the bottom (single-line, Enter to send)
         st.text_input(
             label="Your Message",
             placeholder="Ask Anything",
             key="user_input",
-            on_change=self.handle_user_input
+            on_change=self.handle_user_input,
+            help="Type your message and press Enter."
         )
 
     def handle_user_input(self):
@@ -94,7 +82,9 @@ class AppUI:
             timestamp = datetime.now().strftime("%H:%M:%S")
             self.chat_history.add_message(Message("User", user_text, timestamp))
             bot_name = self.settings.get_settings().get("bot_name", "Bot")
-            bot_reply = RandomResponder.get_response()
+            emoji = self.settings.get_settings().get("emoji", "🤖")
+            with st.spinner(f"Thinking... {emoji}"):
+                bot_reply = RandomResponder.get_response()
             self.chat_history.add_message(Message(bot_name, bot_reply, timestamp))
             st.session_state["last_input"] = user_text
         st.session_state["user_input"] = ""  # Clear input field
